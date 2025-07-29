@@ -6,6 +6,8 @@ from gpiozero import DistanceSensor, MotionSensor, Servo
 
 from RPLCD.i2c import CharLCD
 
+#from gpiozero.pins.pigpio import PiGPIOFactory
+#sudo systemctl start pigpiod
 import requests
 
 import time
@@ -26,6 +28,7 @@ Distance_sensor = DistanceSensor(echo=TRASH_PIN_DISTANCE_ECHO, trigger=TRASH_PIN
 Pir_sensor = MotionSensor(TRASH_PIN_MOTION)
 
 lid_servo = Servo(SERVO)
+#lidservo = Servo(18, pin_factory=factory)
 
 lcd = CharLCD('PCF8574', 0x27, cols=16, rows=2) 
 
@@ -51,6 +54,11 @@ def _display_the_fill(data):
     lcd.cursor_pos = (1, 0)
     lcd.write_string(str(data) + '%')
 
+def arduino_servo_write(servo_object, arduino_angle):
+    if not (0 <= arduino_angle <= 180):
+        arduino_angle = max(0, min(180, arduino_angle))
+    gpiozero_angle = arduino_angle - 90
+    servo_object.angle = gpiozero_angle
     
 def _open_lid():
     """Mở nắp thùng rác"""
@@ -58,6 +66,13 @@ def _open_lid():
     if not is_lid_open:
         lid_servo.max()
         is_lid_open = True
+        """
+        # Quét từ 0 đến 180 độ, mỗi bước 1°
+        for angle in range(0, 181, 1):  # hoặc range(180, -1, -1) để quay ngược
+            set_servo_angle(angle)
+            print(f"Góc: {angle}°")
+            sleep(0.02)  # delay nhỏ để mượt, tăng nếu bị rung
+        """
         _display_status("Chao ban!", "Hay bo rac vao")
         print("Nắp thùng rác MỞ - Phát hiện NGƯỜI")
 
@@ -70,6 +85,14 @@ def _close_lid():
             _display_status("Cam on ban!", "Hen gap lai")
             print("Nắp thùng rác ĐÓNG")
 
+"""
+def set_servo_angle(angle):
+    # Giới hạn góc trong khoảng 0–180
+    angle = max(0, min(180, angle))
+    # Chuyển sang dải giá trị -1.0 đến 1.0
+    value = (angle / 90.0) - 1.0
+    servo.value = value
+"""
 
 # ----- Cấu hình ThingSpeak của bạn -----
 # Thay thế bằng API Key của kênh ThingSpeak của bạn
