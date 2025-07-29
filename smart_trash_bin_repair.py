@@ -31,8 +31,6 @@ lcd = CharLCD('PCF8574', 0x27, cols=16, rows=2)
 
 is_lid_open = False
 
-person_detection_history = []  # Lưu lịch sử phát hiện
-
 #cho servo xoay về chính giữa
 lid_servo.mid()
 
@@ -60,8 +58,6 @@ def _open_lid():
     if not is_lid_open:
         lid_servo.max()
         is_lid_open = True
-        #xóa lịch sử lưu phát hiện người để lưu lịch sử tiếp theo
-        person_detection_history.clear()
         _display_status("Chao ban!", "Hay bo rac vao")
         print("Nắp thùng rác MỞ - Phát hiện NGƯỜI")
 
