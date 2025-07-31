@@ -2,20 +2,18 @@ from time import sleep
 
 from config import TRASH_PIN_DISTANCE_ECHO, TRASH_PIN_DISTANCE_TRIGGER, TRASH_PIN_MOTION, SERVO
 
-from gpiozero import DistanceSensor, MotionSensor, Servo
+from gpiozero import DistanceSensor, MotionSensor
 
 from RPLCD.i2c import CharLCD
 
-#from gpiozero.pins.pigpio import PiGPIOFactory
-#sudo systemctl start pigpiod
+import RPi.GPIO as GPIO 
+
 import requests
 
 import time
 
 import threading
 #phần khai báo cảm biến, màn hình, động cơ servo
-
-motion_detected_status = False
 
 fill_level = 0
 
@@ -27,15 +25,49 @@ Distance_sensor = DistanceSensor(echo=TRASH_PIN_DISTANCE_ECHO, trigger=TRASH_PIN
 
 Pir_sensor = MotionSensor(TRASH_PIN_MOTION)
 
-lid_servo = Servo(SERVO)
-#lidservo = Servo(18, pin_factory=factory)
+# Cài đặt RPi.GPIO cho servo
+GPIO.setmode(GPIO.BCM) # Sử dụng chế độ đánh số chân BCM
+GPIO.setup(SERVO, GPIO.OUT) # Thiết lập chân SERVO (ví dụ 18) là output
+def angle_to_duty_cycle(angle):
+    return (angle / 18.0) + 2.5
+
+# Khởi tạo PWM cho servo
+# SERVO là chân GPIO, 50 là tần số PWM (50Hz là tiêu chuẩn cho servo)
+pwm_servo_rpi = GPIO.PWM(SERVO, 50) 
+pwm_servo_rpi.start(angle_to_duty_cycle(90)) # Bắt đầu PWM với duty cycle 0 (servo sẽ không di chuyển)
 
 lcd = CharLCD('PCF8574', 0x27, cols=16, rows=2) 
 
 is_lid_open = False
 
-#cho servo xoay về chính giữa
-lid_servo.mid()
+motion_detected = False
+
+def cleanup_gpio_rpi():
+    """Dừng PWM và dọn dẹp các chân GPIO của RPi.GPIO."""
+    pwm_servo_rpi.stop() # Dừng PWM
+    GPIO.cleanup() # Giải phóng tất cả các chân GPIO đã sử dụng bởi RPi.GPIO
+
+# Hàm chuyển đổi góc sang chu kỳ nhiệm vụ (Duty Cycle)
+
+def move_servo_smoothly(start_angle, end_angle, duration_seconds):
+    step_delay = duration_seconds / abs(end_angle - start_angle) # Độ trễ cho mỗi bước 1 độ
+
+    if start_angle < end_angle:
+        step = 1
+    else:
+        step = -1
+
+    print(f"Bắt đầu di chuyển servo từ {start_angle} đến {end_angle} trong {duration_seconds} giây...")
+
+    for angle in range(start_angle, end_angle + step, step):
+        duty_cycle = angle_to_duty_cycle(angle)
+        pwm_servo_rpi.ChangeDutyCycle(duty_cycle)
+        time.sleep(step_delay) # Chờ cho mỗi bước
+    
+    # Đảm bảo servo ở vị trí cuối cùng và giữ ở đó một chút
+    pwm_servo_rpi.ChangeDutyCycle(angle_to_duty_cycle(end_angle))
+    time.sleep(1) # Giữ thêm một chút ở vị trí cuối
+
 
 def _display_status(line1, line2):
     """Hiển thị trạng thái"""
@@ -53,46 +85,26 @@ def _display_the_fill(data):
     lcd.write_string('the fill level:')
     lcd.cursor_pos = (1, 0)
     lcd.write_string(str(data) + '%')
-
-def arduino_servo_write(servo_object, arduino_angle):
-    if not (0 <= arduino_angle <= 180):
-        arduino_angle = max(0, min(180, arduino_angle))
-    gpiozero_angle = arduino_angle - 90
-    servo_object.angle = gpiozero_angle
     
 def _open_lid():
     """Mở nắp thùng rác"""
     global is_lid_open
     if not is_lid_open:
-        lid_servo.max()
+        move_servo_smoothly(90, 180, 1)
         is_lid_open = True
-        """
-        # Quét từ 0 đến 180 độ, mỗi bước 1°
-        for angle in range(0, 181, 1):  # hoặc range(180, -1, -1) để quay ngược
-            set_servo_angle(angle)
-            print(f"Góc: {angle}°")
-            sleep(0.02)  # delay nhỏ để mượt, tăng nếu bị rung
-        """
         _display_status("Chao ban!", "Hay bo rac vao")
         print("Nắp thùng rác MỞ - Phát hiện NGƯỜI")
+        sleep(5)
 
 def _close_lid():
         """Đóng nắp thùng rác"""
         global is_lid_open
         if is_lid_open:
-            lid_servo.min()
+            move_servo_smoothly(180, 90, 1)
             is_lid_open = False
             _display_status("Cam on ban!", "Hen gap lai")
             print("Nắp thùng rác ĐÓNG")
 
-"""
-def set_servo_angle(angle):
-    # Giới hạn góc trong khoảng 0–180
-    angle = max(0, min(180, angle))
-    # Chuyển sang dải giá trị -1.0 đến 1.0
-    value = (angle / 90.0) - 1.0
-    servo.value = value
-"""
 
 # ----- Cấu hình ThingSpeak của bạn -----
 # Thay thế bằng API Key của kênh ThingSpeak của bạn
@@ -106,15 +118,16 @@ def send_data_to_thingspeak():
     :param lid_status: Trạng thái nắp (0: Đóng, 1: Mở).
     :param ir_detected: Trạng thái phát hiện người (0: Không, 1: Có).
     """
-    global fill_level # Đọc biến toàn cục
-    global is_lid_open # Đọc biến toàn cục
-    global motion_detected_status # Đọc biến toàn cục
+    fill_level # Đọc biến toàn cục
+    is_lid_open # Đọc biến toàn cục
+    motion_detected # Đọc biến toàn cục
     payload = {
         "api_key": THINGSPEAK_API_KEY,
         "field1": int(fill_level),     # Map với Field 1: FillLevel trên ThingSpeak
-        "field2": is_lid_open,    # Map với Field 2: LidStatus trên ThingSpeak
-        "field3": motion_detected_status  # Map với Field 3: IRDetected trên ThingSpeak
+        "field2": int(is_lid_open),    # Map với Field 2: LidStatus trên ThingSpeak
+        "field3": int(motion_detected)  # Map với Field 3: IRDetected trên ThingSpeak
     }
+    print(f"Đang gửi lên ThingSpeak: Mức đầy={int(fill_level)}, Nắp={is_lid_open}, Phát hiện người={motion_detected}")
 
     try:
         response = requests.get(THINGSPEAK_URL, params=payload)
@@ -137,10 +150,10 @@ def measure_the_fill_level():
     if not is_lid_open:
         distance = Distance_sensor.distance * 100
         fill_level = ((Threshold - distance) / Threshold) * 100
-        if fill_level_calculated < 0: fill_level_calculated = 0
-        if fill_level_calculated > 100: fill_level_calculated = 100
+        if fill_level < 0: fill_level = 0
+        if fill_level > 100: fill_level = 100
         _display_the_fill(int(fill_level))
-        sleep(60)
+        sleep(25)
     
 
 def _is_person_nearby():
@@ -148,12 +161,10 @@ def _is_person_nearby():
     Kiểm tra có NGƯỜI gần không sử dụng PIR_Sensor và điều khiển nắp.
     Cập nhật lịch sử phát hiện người để quyết định đóng nắp.
     """
-    global motion_detected_status
+    global motion_detected
     motion_detected = Pir_sensor.is_active
-    motion_detected_status = motion_detected
-    if motion_detected_status: 
+    if motion_detected: 
         _open_lid()
-        sleep(5)
     else: 
         _close_lid()
     sleep(0.5)
@@ -225,6 +236,7 @@ if __name__ == "__main__":
         lcd.write_string("Shutting down...")
         sleep(1)
         lcd.clear()
+        cleanup_gpio_rpi()
         print("Chương trình đã thoát.")
 
 
