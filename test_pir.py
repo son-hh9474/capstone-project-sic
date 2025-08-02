@@ -1,4 +1,5 @@
 from gpiozero import MotionSensor, LED
+from gpiozero.pins.lgpio import LGPIOFactory
 from time import sleep
 import threading
 
@@ -10,8 +11,8 @@ LED_PIN = 17 # Chân GPIO của LED
 LED_ON_DELAY_SECONDS = 5
 
 # --- Khởi tạo đối tượng cảm biến và LED ---
-pir = MotionSensor(PIR_PIN)
-led = LED(LED_PIN)
+pir = MotionSensor(PIR_PIN, pin_factory= LGPIOFactory())
+led = LED(LED_PIN, pin_factory= LGPIOFactory())
 
 # Biến để theo dõi trạng thái LED (để không bật lại timer nếu LED đã được hẹn giờ tắt)
 led_timer = None
