@@ -65,7 +65,6 @@ def _open_lid():
         is_lid_open = True
         _display_status("Chao ban!", "Hay bo rac vao")
         print("Nắp thùng rác MỞ - Phát hiện NGƯỜI")
-        sleep(5)
 
 def _close_lid():
         """Đóng nắp thùng rác"""
